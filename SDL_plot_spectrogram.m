@@ -2,14 +2,14 @@ close all
 clear all
 
 % Read file
-[in, Fs] = audioread('SDRSharp_20170301_172427Z_868712500Hz_IQ_125k.wav');
+[in, Fs] = audioread('SDRSharp_20170301_171509Z_868787500Hz_IQ_125k.wav');
 
 % Allocate in-phase and quadrature components
-x = (in(:,1) + 1i*in(:,2))';
+x = (in(:,2) + 1i*in(:,1)).';
 
 % Crop signal in time
-n = 2.306*Fs:4.13*Fs;
-x = x(n); 
+n = 2.166*Fs:3.485*Fs;
+x = x(n);
 
 % Spectrogram parameters
 window_length = 1024;
