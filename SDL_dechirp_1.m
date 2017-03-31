@@ -1,78 +1,108 @@
 close all
 clear
 
-% Read file
+%% Recorded signal import
 [in, Fs] = audioread('SDRSharp_20170301_172427Z_868712500Hz_IQ_125k.wav');
-
 % Allocate in-phase and quadrature components
-x = (in(:,2) + 1i*in(:,1)).';
+x = complex(in(:,2), in(:,1)).';
+clear in
 
-% Crop signal in time
-n = 2.3055*Fs:4.13*Fs; % 2.3055
-x = x(n);
+%% LoRa parameters
+BW = 125e3;
+SF = 12;
+Fc = 1.6385e6;
+symbol_time = 2^SF/BW; % 32.8e-3
+symbols_per_frame = 56;
 
+%% Signal channelization (DDC)
+% Comment: Use the Digital down converter or polyphase FFT bank
+% Bring signal to baseband
+t = 0:1/Fs:length(x)/Fs-1/Fs;
+x = x.*cos(2*pi*(Fc-BW/2)*t);
 % Filter the signal
-% freqs = [0 0.54 0.56 0.70 0.72 1];
-% damps = [0 0 1 1 0 0];
+% freqs = [0 2*BW/Fs 2*BW/Fs*9/8 1];
+% damps = [1 1 0 0];
 % order = 50;
 % b = firpm(order,freqs,damps);
 % x = filter(b,1,x);
-
-% Bring signal to baseband
-t = 0:1/Fs:length(x)/Fs-1/Fs;
-x = x.*cos(2*pi*1.576e6*t); % 1.456e6
-
-% LoRa parameters
-BW = 125e3;
-SF = 12;
-% Nfft = 2^SF;
-chirp_rate = BW/2^SF;
-
 % Decimation
-% x = decimate(x, 2);
+x = resample(x, 2*BW, Fs); % Output sampling frequency is 2*BW
+Fs = 2*BW;
 
-% Chirp generation
-fo = BW; % reverse fo and f1 for an up-chirp
-f1 = 0;
-symbol_time = 1/chirp_rate; % 32.8e-3
+%% Chirp generation
+f0 = 0; % reverse fo and f1 for an up-chirp
+f1 = BW;
 t = 0:1/Fs:symbol_time;
-c = chirp(t,fo,symbol_time,f1); % generate a down-chirp segment and concatenate multiple ones
-c = [c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c c];
-c = c(1:length(x)); % crop to signal length
-% c = c .* exp(-1i*pi*ones(1,length(x))); % add a phase
+upChirp = chirp(t,f0,symbol_time,f1); % generate a down-chirp segment and concatenate multiple ones
+downChirp = chirp(t,f1,symbol_time,f0);
 
-% Curently there is a mismatch in chirp BW, so the resulting spectrum
-% is split in two,  half of it (non-consecutive pieces) is shifted to the right
+% downChirp = downChirp .* exp(-1i*pi/64*ones(1,length(downChirp))); % add a phase
 
-% De-chirping
-de_chirped = x.*conj(c);
+%% Signal conditioning and synchronization
+% Find the start of the signal
+[corr, lag] = xcorr(x, upChirp);
+cLag = find(abs(corr) > 20, 1);
+signalStartIndex = abs(lag(cLag));
+signalEndIndex = round(signalStartIndex + symbols_per_frame*symbol_time*Fs);
+% Crop signal in time
+% % signalStartIndex = 2.3055*Fs;
+% % signalEndIndex = 4.11*Fs;
+% Synchronize SFD
+symbol_offset = 0.25; % 12.25 to skip preamble and SFD
+signalStartIndex = round(signalStartIndex + symbol_offset*symbol_time*Fs);
+x = x(signalStartIndex:signalEndIndex);
+clear lag corr
 
-% Plot spectrogram
-Nx = length(x);
-window_length = 4096; % round(symbol_time*Fs);
-Nfft = 4096; % 2^17;
-[s, f, t] = spectrogram(de_chirped, blackman(window_length), round(window_length/2), Nfft, Fs);
+%% De-chirping
+downChirp = repmat(downChirp,1,ceil(length(x)/length(downChirp)));
+downChirp = downChirp(1:length(x));
+% upChirp = repmat(upChirp,1,ceil(length(x)/length(upChirp)));
+% upChirp = upChirp(1:length(x));
+de_chirped = x.*downChirp;
 
+%% Comment:
+% The resulting spectrum is split in two,  half of it (non-consecutive
+% pieces) is shifted to the right. This is why it's needed to
+% artificially overlap the two halves.
+
+%% Spectrogram computation
+signal = de_chirped;
+Nfft = 2^(SF+1); % +1 because the spectrum is doubled (Nyquist)
+window_length = Nfft; % same as symbol_time*Fs;
+[s, f, t] = spectrogram(signal, blackman(window_length), 0, Nfft, Fs);
+
+%% Spectrogram conditioning
+if isreal(signal)
+    Nfft = Nfft/2+1;
+end
 % Overlapping option 1
-s_first = s(1:round(BW/Fs*Nfft),:); %s(1:BW/Fs*Nfft,:);
-s_second = s(round(BW/Fs*Nfft)+1:round(BW/Fs*Nfft)*2,:); % s(BW/Fs*Nfft+1:BW/Fs*Nfft*2-1,:);
-padding = zeros(Nfft-round(BW/Fs*Nfft),size(s,2));
-s_second_padded = [s_second; padding];
-s = s + s_second_padded; % add padding
+% s_first = s(1:round(BW/Fs*Nfft),:); %s(1:BW/Fs*Nfft,:);
+% s_second = s(round(BW/Fs*Nfft)+1:round(BW/Fs*Nfft)*2,:); % s(BW/Fs*Nfft+1:BW/Fs*Nfft*2-1,:);
+% padding = zeros(Nfft-round(BW/Fs*Nfft),size(s,2));
+% s_second_padded = [s_second; padding];
+% s = s + s_second_padded; % add padding
 
 % Overlapping option 2
-% s_first = s(1:round(BW/Fs*Nfft),:);
-% s_second = s(round(BW/Fs*Nfft)+1:round(BW/Fs*Nfft)*2,:);
-% s = s_first + s_second;
-% f = f(1:round(BW/Fs*Nfft));
+s_first = s(1:round(BW/Fs*Nfft),:);
+s_second = s(round(BW/Fs*Nfft)+1:round(BW/Fs*Nfft)*2,:);
+s = s_first + s_second;
+f = f(1:round(BW/Fs*Nfft));
 
+%% Spectrogram plotting
 surf(f,t,10*log10(abs(s.')),'EdgeColor','none')
 axis xy; axis tight; colormap(jet); view(0,90);
 ylabel('Time');
 xlabel('Frequency (Hz)');
+xlim([0 BW])
 
-% xlim([0 2*BW])
-% ylim([0.001 0.81])
+%% Bit extraction
+[val, symbols] = max(abs(s));
+symbols = mod(symbols - round(mean(symbols(1:8))), 2^SF);
+bits =  dec2base(symbols, 2);
+
+
+
+%% Other code
 % printfigure('Caputred LoRa signal')
 
 % % Plot spectrum
@@ -83,3 +113,32 @@ xlabel('Frequency (Hz)');
 % % Test to crop signal in frequency
 % X = X(.5781/(2*pi)*Nfft:.6875/(2*pi)*Nfft);
 % x = ifft(X);
+
+%% Other chirp generation options
+% Manual chirp generation
+% k = (f1-f0)/symbol_time;
+% upChirp = sin(-1*2*pi*(f0*t+k/2*t.^2));
+% downChirp = sin(2*pi*(f0*t+k/2*t.^2));
+% % downChirp = downChirp .* exp(-1i*pi/64*ones(1,length(downChirp))); % add a phase
+
+% Manual complex chirp generation
+% k = (f1-f0)/symbol_time;
+% upChirp = -1*2*pi*(f0*t+k/2*t.^2);
+% downChirp = 2*pi*(f0*t+k/2*t.^2);
+% upChirp = cos(upChirp) + 1i * sin(upChirp);
+% downChirp = cos(downChirp) + 1i * sin(downChirp);
+% upChirp = (1+1i) * upChirp;
+% downChirp = (1+1i) * downChirp;
+% % c = c .* exp(-1i*pi/64*ones(1,length(c))); % add a phase
+
+% Channelized chirp generation
+% fo = BW; % reverse fo and f1 for an up-chirp
+% f1 = 0;
+% Fs_prime = 2*BW;
+% symbol_time = 1/chirp_rate; % 32.8e-3
+% t = 0:1/Fs_prime:symbol_time;
+% c = chirp(t,fo,symbol_time,f1); % generate a down-chirp segment and concatenate multiple ones
+% c = repmat(c,1,ceil(length(x)/length(c)));
+% c = c(1:length(x));
+% % c = c .* exp(-1i*pi*ones(1,length(x))); % add a phase
+%%
