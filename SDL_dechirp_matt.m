@@ -10,9 +10,9 @@ clear in
 %% LoRa parameters
 BW = 125e3;
 SF = 7;
-Fc = 2.09e6;
+Fc = 2.08e6;
 symbol_time = 2^SF/BW;
-symbols_per_frame = 86; %At 85 noise floor drops, lol
+symbols_per_frame = 86; % At 85 noise floor drops, lol
 
 %% Signal channelization (DDC)
 % Comment: Use the Digital down converter or polyphase FFT bank
@@ -31,12 +31,14 @@ Fs = 2*BW;
 clear t
 
 %% Chirp generation
-f0 = 0; % reverse fo and f1 for an up-chirp
+f0 = 0;
 f1 = BW;
 t = 0:1/Fs:symbol_time - 1/Fs;
 upChirp = chirp(t,f0,symbol_time,f1); % generate a down-chirp segment and concatenate multiple ones
 downChirp = chirp(t,f1,symbol_time,f0);
 % downChirp = downChirp .* exp(-1i*pi/64*ones(1,length(downChirp))); % add a phase
+
+upChirp = repmat(upChirp,1,10);
 
 %% Signal conditioning and synchronization
 % Find the start of the signal
@@ -44,7 +46,7 @@ downChirp = chirp(t,f1,symbol_time,f0);
 % corrThresh = 8;
 corrThresh = max(abs(corr))/4;
 cLag = find(abs(corr) > corrThresh, 1);
-signalStartIndex = abs(lag(cLag));
+signalStartIndex = abs(lag(cLag)) + 9*symbol_time*Fs;
 signalEndIndex = round(signalStartIndex + symbols_per_frame*symbol_time*Fs);
 % Synchronize SFD
 symbol_offset = 0.25; % 12.25 to skip preamble and SFD
@@ -53,7 +55,7 @@ signalStartIndex = round(signalStartIndex + symbol_offset*symbol_time*Fs);
 % % signalStartIndex = 0.84628*Fs;
 % % signalEndIndex = 0.935*Fs;
 x = x(signalStartIndex:signalEndIndex);
-clear lag corr
+% clear lag corr
 
 %% De-chirping
 downChirp = repmat(downChirp,1,ceil(length(x)/length(downChirp)));
@@ -99,7 +101,7 @@ xlim([0 BW])
 
 %% Bit extraction
 s = s(:,1:symbols_per_frame-2);
-[val, symbols] = max(abs(s));
+[~, symbols] = max(abs(s));
 symbols = mod(symbols - round(mean(symbols(1:8))), 2^SF);
 bits =  dec2base(symbols, 2);
 
