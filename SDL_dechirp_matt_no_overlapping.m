@@ -2,17 +2,17 @@ close all
 clear
 
 %% Recorded signal import
-[in, Fs] = audioread('SDRSharp_20170301_172427Z_868712500Hz_IQ_125k.wav');
+[in, Fs] = audioread('lora-sample-signal.wav');
 % Allocate in-phase and quadrature components
-x = complex(in(:,2), in(:,1)).';
+x = complex(in(:,1), in(:,2)).';
 clear in
 
 %% LoRa parameters
 BW = 125e3;
-SF = 12;
-Fc = 1.6385e6; % 1.64e6
-symbol_time = 2^SF/BW; % 32.8e-3
-symbols_per_frame = 57;
+SF = 7;
+Fc = 2.08e6;
+symbol_time = 2^SF/BW;
+symbols_per_frame = 86; % At 85 noise floor drops, lol
 
 %% Signal channelization (DDC)
 % Comment: Use the Digital down converter or polyphase FFT bank
@@ -75,7 +75,7 @@ de_chirped = x.*downChirp;
 
 %% Spectrogram computation
 signal = de_chirped;
-Nfft = 2^(SF+1); % +1 because the spectrum is doubled (Nyquist)
+Nfft = 2^(SF+1); % +1 because the spectrum is doubled (Nyquist) % 64
 window_length = Nfft; % same as symbol_time*Fs;
 [s, f, t] = spectrogram(signal, blackman(window_length), 0, Nfft, Fs);
 
@@ -83,6 +83,9 @@ window_length = Nfft; % same as symbol_time*Fs;
 if isreal(signal)
     Nfft = Nfft/2+1;
 end
+
+s = circshift(s,Nfft*3/4,1);
+
 % Overlapping option 1: wrong, should only consider first half of
 % spectrogram
 % s_first = s(1:round(BW/Fs*Nfft),:); %s(1:BW/Fs*Nfft,:);
@@ -92,17 +95,17 @@ end
 % s = s + s_second_padded; % add padding
 
 % Overlapping option 2: correct
-s_first = s(1:round(BW/Fs*Nfft),:);
-s_second = s(round(BW/Fs*Nfft)+1:round(BW/Fs*Nfft)*2,:);
-s = s_first + s_second;
-f = f(1:round(BW/Fs*Nfft));
+% s_first = s(1:round(BW/Fs*Nfft),:);
+% s_second = s(round(BW/Fs*Nfft)+1:round(BW/Fs*Nfft)*2,:);
+% s = s_first + s_second;
+% f = f(1:round(BW/Fs*Nfft));
 
 %% Spectrogram plotting
 surf(f,t,10*log10(abs(s.')),'EdgeColor','none')
 axis xy; axis tight; colormap(jet); view(0,90);
 ylabel('Time');
 xlabel('Frequency (Hz)');
-% xlim([0 BW])
+xlim([0 BW])
 
 %% Bit extraction
 s = s(1:Nfft/2,:); % just to make sure

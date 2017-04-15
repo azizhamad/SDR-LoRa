@@ -75,7 +75,7 @@ de_chirped = x.*downChirp;
 
 %% Spectrogram computation
 signal = de_chirped;
-Nfft = 2^(SF+1); % +1 because the spectrum is doubled (Nyquist)
+Nfft = 2^(SF+1); % +1 because the spectrum is doubled (Nyquist) % 1024
 window_length = Nfft; % same as symbol_time*Fs;
 [s, f, t] = spectrogram(signal, blackman(window_length), 0, Nfft, Fs);
 
@@ -83,6 +83,9 @@ window_length = Nfft; % same as symbol_time*Fs;
 if isreal(signal)
     Nfft = Nfft/2+1;
 end
+
+s = circshift(s,Nfft*3/4,1);
+
 % Overlapping option 1: wrong, should only consider first half of
 % spectrogram
 % s_first = s(1:round(BW/Fs*Nfft),:); %s(1:BW/Fs*Nfft,:);
@@ -92,17 +95,17 @@ end
 % s = s + s_second_padded; % add padding
 
 % Overlapping option 2: correct
-s_first = s(1:round(BW/Fs*Nfft),:);
-s_second = s(round(BW/Fs*Nfft)+1:round(BW/Fs*Nfft)*2,:);
-s = s_first + s_second;
-f = f(1:round(BW/Fs*Nfft));
+% s_first = s(1:round(BW/Fs*Nfft),:);
+% s_second = s(round(BW/Fs*Nfft)+1:round(BW/Fs*Nfft)*2,:);
+% s = s_first + s_second;
+% f = f(1:round(BW/Fs*Nfft));
 
 %% Spectrogram plotting
 surf(f,t,10*log10(abs(s.')),'EdgeColor','none')
 axis xy; axis tight; colormap(jet); view(0,90);
 ylabel('Time');
 xlabel('Frequency (Hz)');
-% xlim([0 BW])
+xlim([0 BW])
 
 %% Bit extraction
 s = s(1:Nfft/2,:); % just to make sure

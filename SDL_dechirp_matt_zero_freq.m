@@ -63,7 +63,7 @@ signalStartIndex = round(signalStartIndex + symbol_offset*symbol_time*Fs);
 % % signalStartIndex = 2.3055*Fs;
 % % signalEndIndex = 4.11*Fs;
 x = x(signalStartIndex:signalEndIndex);
-% clear lag corr
+clear lag corr
 
 %% De-chirping
 downChirp = repmat(downChirp,1,ceil(length(x)/length(downChirp)));
@@ -79,7 +79,7 @@ de_chirped = x.*downChirp;
 
 %% Spectrogram computation
 signal = de_chirped;
-Nfft = 2^(SF+1); % +1 because the spectrum is doubled (Nyquist)
+Nfft = 2^(SF+1); % +1 because the spectrum is doubled (Nyquist) % 64
 window_length = Nfft; % same as symbol_time*Fs;
 [s, f, t] = spectrogram(signal, blackman(window_length), 0, Nfft, Fs);
 
@@ -88,7 +88,7 @@ if isreal(signal)
     Nfft = Nfft/2+1;
 end
 
-s = circshift(s,Nfft/8,1);
+s = circshift(s,Nfft/4,1);
 
 % Overlapping option 1
 % s_first = s(1:round(BW/Fs*Nfft),:); %s(1:BW/Fs*Nfft,:);
